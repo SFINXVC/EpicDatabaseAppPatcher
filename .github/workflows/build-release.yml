@@ -1,0 +1,88 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        architecture: [win-x64, win-x86]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Publish ${{ matrix.architecture }}
+        run: dotnet publish -r ${{ matrix.architecture }} -c Release /p:PublishAot=true
+
+      - name: Get executable path
+        id: get-path
+        shell: pwsh
+        run: |
+          $arch = "${{ matrix.architecture }}"
+          $exePath = "src\EpicDatabaseAppPatcher\bin\Release\net10.0\$arch\native\EpicDatabaseAppPatcher.exe"
+          echo "exe_path=$exePath" >> $env:GITHUB_OUTPUT
+          echo "Found executable at: $exePath"
+
+      - name: Create zip archive
+        shell: pwsh
+        run: |
+          $arch = "${{ matrix.architecture }}"
+          $exePath = "${{ steps.get-path.outputs.exe_path }}"
+          $zipName = "EpicDatabaseAppPatcher-$arch.zip"
+          
+          if (Test-Path $exePath) {
+            Compress-Archive -Path $exePath -DestinationPath $zipName -Force
+            echo "Created $zipName"
+          } else {
+            echo "Error: Executable not found at $exePath"
+            exit 1
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EpicDatabaseAppPatcher-${{ matrix.architecture }}
+          path: EpicDatabaseAppPatcher-${{ matrix.architecture }}.zip
+          retention-days: 90
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/EpicDatabaseAppPatcher-win-x64/EpicDatabaseAppPatcher-win-x64.zip
+            artifacts/EpicDatabaseAppPatcher-win-x86/EpicDatabaseAppPatcher-win-x86.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
