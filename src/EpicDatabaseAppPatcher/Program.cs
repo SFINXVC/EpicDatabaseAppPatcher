@@ -2,23 +2,32 @@ using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using EpicDatabaseAppPatcher.Utils;
 
-if (args.Length != 2) {
-    Console.WriteLine($"Usage: {Utils.GetExecutableFileName()} <input file> <output file>");
+if (args.Length < 2 || args.Length > 3) {
+    Console.WriteLine($"Usage: {Utils.GetExecutableFileName()} <input file> <output file> [email]");
+    Console.WriteLine("  [email] - Optional: Email address to patch into GetEmail method");
     return -1;
 }
 
 var inPath = args[0];
 var outPath = args[1];
+var patchEmail = args.Length == 3 ? args[2] : null;
 
-if (!File.Exists(inPath)) {
+if (!File.Exists(inPath))
+{
     Console.WriteLine($"FATAL: Input file not found: {inPath}");
     return -1;
 }
 
-try {
+Console.WriteLine("EpicDatabaseAppPatcher - SFINXV");
+Console.WriteLine("Don't use this tool for commercial purposes!");
+Console.WriteLine("GitHub: https://github.com/SFINXVC/EpicDatabaseAppPatcher");
+
+try
+{
     var dir = Path.GetDirectoryName(inPath);
 
-    if (string.IsNullOrEmpty(dir)) {
+    if (string.IsNullOrEmpty(dir))
+    {
         dir = Directory.GetCurrentDirectory();
     }
 
@@ -29,7 +38,9 @@ try {
 
     File.Copy(inPath, backupName, false);
     Console.WriteLine($"Created backup at: {backupName}");
-} catch (Exception e) {
+}
+catch (Exception e)
+{
     Console.WriteLine($"FATAL: An error ocurred while trying to create a backup: {e.Message}");
     return -1;
 }
@@ -66,6 +77,24 @@ newMethodBody.Instructions.Add(Instruction.Create(OpCodes.Ldc_I4_1)); // always 
 newMethodBody.Instructions.Add(Instruction.Create(OpCodes.Ret));
 
 method.Body = newMethodBody;
+
+if (!string.IsNullOrEmpty(patchEmail)) {
+    var getEmailMethod = type.Methods.FirstOrDefault(x => x.Name == "GetEmail");
+    getEmailMethod ??= type.Methods.FirstOrDefault(x => x.Name == "LicenseService__GetEmail");
+    getEmailMethod ??= type.Methods.FirstOrDefault(x => !x.IsStatic && x.Parameters.Count == 0 && x.ReturnType.FullName == "System.String");
+
+    if (getEmailMethod is null) {
+        Console.WriteLine("WARNING: GetEmail method not found, skipping email patch");
+    } else {
+        Console.WriteLine($"Trying to patch method: {type.FullName}::{getEmailMethod.Name}");
+        
+        var emailMethodBody = new CilBody();
+        emailMethodBody.Instructions.Add(Instruction.Create(OpCodes.Ldstr, patchEmail));
+        emailMethodBody.Instructions.Add(Instruction.Create(OpCodes.Ret));
+        
+        getEmailMethod.Body = emailMethodBody;
+    }
+}
 
 try {
     moduleDef.Write(outPath);
